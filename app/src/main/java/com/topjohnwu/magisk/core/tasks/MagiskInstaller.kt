@@ -16,8 +16,8 @@ import com.topjohnwu.magisk.di.ServiceLocator
 import com.topjohnwu.magisk.ktx.reboot
 import com.topjohnwu.magisk.ktx.withStreams
 import com.topjohnwu.magisk.ktx.writeTo
+import com.topjohnwu.magisk.signing.SignBoot
 import com.topjohnwu.magisk.utils.Utils
-import com.topjohnwu.signing.SignBoot
 import com.topjohnwu.superuser.Shell
 import com.topjohnwu.superuser.ShellUtils
 import com.topjohnwu.superuser.internal.NOPList
@@ -37,6 +37,7 @@ import java.io.*
 import java.nio.ByteBuffer
 import java.security.SecureRandom
 import java.util.*
+import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 
 abstract class MagiskInstallImpl protected constructor(
@@ -93,8 +94,14 @@ abstract class MagiskInstallImpl protected constructor(
             // Extract binaries
             if (isRunningAsStub) {
                 val zf = ZipFile(DynAPK.current(context))
+
+                // Also extract magisk32 on non 64-bit only 64-bit devices
+                val is32lib = Const.CPU_ABI_32?.let {
+                    { entry: ZipEntry -> entry.name == "lib/$it/libmagisk32.so" }
+                } ?: { false }
+
                 zf.entries().asSequence().filter {
-                    !it.isDirectory && it.name.startsWith("lib/${Const.CPU_ABI_32}/")
+                    !it.isDirectory && (it.name.startsWith("lib/${Const.CPU_ABI}/") || is32lib(it))
                 }.forEach {
                     val n = it.name.substring(it.name.lastIndexOf('/') + 1)
                     val name = n.substring(3, n.length - 3)
@@ -102,9 +109,17 @@ abstract class MagiskInstallImpl protected constructor(
                     zf.getInputStream(it).writeTo(dest)
                 }
             } else {
-                val libs = Const.NATIVE_LIB_DIR.listFiles { _, name ->
+                val info = context.applicationInfo
+                var libs = File(info.nativeLibraryDir).listFiles { _, name ->
                     name.startsWith("lib") && name.endsWith(".so")
                 } ?: emptyArray()
+
+                // Also symlink magisk32 on non 64-bit only 64-bit devices
+                val lib32 = info.javaClass.getDeclaredField("secondaryNativeLibraryDir").get(info) as String?
+                if (lib32 != null) {
+                    libs += File(lib32, "libmagisk32.so")
+                }
+
                 for (lib in libs) {
                     val name = lib.name.substring(3, lib.name.length - 3)
                     Os.symlink(lib.path, "$installDir/$name")
@@ -212,6 +227,7 @@ abstract class MagiskInstallImpl protected constructor(
             // Repack boot image to prevent auto restore
             arrayOf(
                 "cd $installDir",
+                "chmod -R 755 .",
                 "./magiskboot unpack boot.img",
                 "./magiskboot repack boot.img",
                 "cat new-boot.img > boot.img",
@@ -249,7 +265,7 @@ abstract class MagiskInstallImpl protected constructor(
                 src.reset()
 
                 val alpha = "abcdefghijklmnopqrstuvwxyz"
-                val alphaNum = "$alpha${alpha.toUpperCase(Locale.ROOT)}0123456789"
+                val alphaNum = "$alpha${alpha.uppercase(Locale.ROOT)}0123456789"
                 val random = SecureRandom()
                 val filename = StringBuilder("magisk_patched-${BuildConfig.VERSION_CODE}_").run {
                     for (i in 1..5) {
@@ -308,11 +324,7 @@ abstract class MagiskInstallImpl protected constructor(
 
         // Fix up binaries
         srcBoot.delete()
-        if (shell.isRoot) {
-            "fix_env $installDir".sh()
-        } else {
-            "cp_readlink $installDir".sh()
-        }
+        "cp_readlink $installDir".sh()
 
         return true
     }
@@ -345,6 +357,7 @@ abstract class MagiskInstallImpl protected constructor(
             "cd $installDir",
             "KEEPFORCEENCRYPT=${Config.keepEnc} " +
             "KEEPVERITY=${Config.keepVerity} " +
+            "PATCHVBMETAFLAG=${Config.patchVbmeta} " +
             "RECOVERYMODE=${Config.recovery} " +
             "sh boot_patch.sh $srcBoot")
 
@@ -375,10 +388,10 @@ abstract class MagiskInstallImpl protected constructor(
 
     private fun flashBoot() = "direct_install $installDir $srcBoot".sh().isSuccess
 
-    private suspend fun postOTA(): Boolean {
+    private fun postOTA(): Boolean {
         try {
             val bootctl = File.createTempFile("bootctl", null, context.cacheDir)
-            service.fetchBootctl().byteStream().writeTo(bootctl)
+            context.assets.open("bootctl").writeTo(bootctl)
             "post_ota $bootctl".sh()
         } catch (e: IOException) {
             console.add("! Unable to download bootctl")
@@ -406,7 +419,7 @@ abstract class MagiskInstallImpl protected constructor(
 
     protected fun fixEnv() = extractFiles() && "fix_env $installDir".sh().isSuccess
 
-    protected fun uninstall() = "run_uninstaller ${AssetHack.apk}".sh().isSuccess
+    protected fun uninstall() = "run_uninstaller $AppApkPath".sh().isSuccess
 
     @WorkerThread
     protected abstract suspend fun operations(): Boolean

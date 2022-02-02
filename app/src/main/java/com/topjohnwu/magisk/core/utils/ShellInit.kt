@@ -1,10 +1,12 @@
 package com.topjohnwu.magisk.core.utils
 
 import android.content.Context
-import android.os.Build
 import com.topjohnwu.magisk.DynAPK
 import com.topjohnwu.magisk.R
-import com.topjohnwu.magisk.core.*
+import com.topjohnwu.magisk.core.Config
+import com.topjohnwu.magisk.core.Const
+import com.topjohnwu.magisk.core.Info
+import com.topjohnwu.magisk.core.isRunningAsStub
 import com.topjohnwu.magisk.ktx.cachedFile
 import com.topjohnwu.magisk.ktx.deviceProtectedContext
 import com.topjohnwu.magisk.ktx.rawResource
@@ -14,18 +16,12 @@ import com.topjohnwu.superuser.ShellUtils
 import java.io.File
 import java.util.jar.JarFile
 
-abstract class BaseShellInit : Shell.Initializer() {
-    final override fun onInit(context: Context, shell: Shell): Boolean {
-        return init(context.wrap(), shell)
-    }
-
-    abstract fun init(context: Context, shell: Shell): Boolean
-}
-
-
-class BusyBoxInit : BaseShellInit() {
-
-    override fun init(context: Context, shell: Shell): Boolean {
+class ShellInit : Shell.Initializer() {
+    override fun onInit(context: Context, shell: Shell): Boolean {
+        if (shell.isRoot) {
+            RootRegistry.bindTask?.run()
+            RootRegistry.bindTask = null
+        }
         shell.newJob().apply {
             add("export ASH_STANDALONE=1")
 
@@ -34,19 +30,19 @@ class BusyBoxInit : BaseShellInit() {
                 if (!shell.isRoot)
                     return true
                 val jar = JarFile(DynAPK.current(context))
-                val bb = jar.getJarEntry("lib/${Const.CPU_ABI_32}/libbusybox.so")
+                val bb = jar.getJarEntry("lib/${Const.CPU_ABI}/libbusybox.so")
                 localBB = context.deviceProtectedContext.cachedFile("busybox")
                 localBB.delete()
                 jar.getInputStream(bb).writeTo(localBB)
                 localBB.setExecutable(true)
             } else {
-                localBB = File(Const.NATIVE_LIB_DIR, "libbusybox.so")
+                localBB = File(context.applicationInfo.nativeLibraryDir, "libbusybox.so")
             }
 
             if (shell.isRoot) {
                 add("export MAGISKTMP=\$(magisk --path)/.magisk")
                 // Test if we can properly execute stuff in /data
-                Info.noDataExec = !shell.newJob().add("$localBB true").exec().isSuccess
+                Info.noDataExec = !shell.newJob().add("$localBB sh -c \"$localBB true\"").exec().isSuccess
             }
 
             if (Info.noDataExec) {
@@ -64,20 +60,7 @@ class BusyBoxInit : BaseShellInit() {
                 // Directly execute the file
                 add("exec $localBB sh")
             }
-        }.exec()
-        return true
-    }
-}
 
-class AppShellInit : BaseShellInit() {
-
-    override fun init(context: Context, shell: Shell): Boolean {
-
-        fun fastCmd(cmd: String) = ShellUtils.fastCmd(shell, cmd)
-        fun getVar(name: String) = fastCmd("echo \$$name")
-        fun getBool(name: String) = getVar(name).toBoolean()
-
-        shell.newJob().apply {
             add(context.rawResource(R.raw.manager))
             if (shell.isRoot) {
                 add(context.assets.open("util_functions.sh"))
@@ -85,9 +68,14 @@ class AppShellInit : BaseShellInit() {
             add("app_init")
         }.exec()
 
+        fun fastCmd(cmd: String) = ShellUtils.fastCmd(shell, cmd)
+        fun getVar(name: String) = fastCmd("echo \$$name")
+        fun getBool(name: String) = getVar(name).toBoolean()
+
         Const.MAGISKTMP = getVar("MAGISKTMP")
         Info.isSAR = getBool("SYSTEM_ROOT")
         Info.ramdisk = getBool("RAMDISKEXIST")
+        Info.vbmeta = getBool("VBMETAEXIST")
         Info.isAB = getBool("ISAB")
         Info.crypto = getVar("CRYPTOTYPE")
 
@@ -95,6 +83,7 @@ class AppShellInit : BaseShellInit() {
         Config.recovery = getBool("RECOVERYMODE")
         Config.keepVerity = getBool("KEEPVERITY")
         Config.keepEnc = getBool("KEEPFORCEENCRYPT")
+        Config.patchVbmeta = getBool("PATCHVBMETAFLAG")
 
         return true
     }

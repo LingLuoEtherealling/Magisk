@@ -2,7 +2,6 @@ package com.topjohnwu.magisk.arch
 
 import android.Manifest
 import androidx.annotation.CallSuper
-import androidx.core.graphics.Insets
 import androidx.databinding.Bindable
 import androidx.databinding.Observable
 import androidx.databinding.PropertyChangeRegistry
@@ -14,10 +13,12 @@ import androidx.navigation.NavDirections
 import com.topjohnwu.magisk.BR
 import com.topjohnwu.magisk.R
 import com.topjohnwu.magisk.core.Info
-import com.topjohnwu.magisk.core.base.BaseActivity
-import com.topjohnwu.magisk.events.*
-import com.topjohnwu.magisk.utils.ObservableHost
-import com.topjohnwu.magisk.utils.set
+import com.topjohnwu.magisk.databinding.ObservableHost
+import com.topjohnwu.magisk.databinding.set
+import com.topjohnwu.magisk.events.BackPressEvent
+import com.topjohnwu.magisk.events.NavigationEvent
+import com.topjohnwu.magisk.events.PermissionEvent
+import com.topjohnwu.magisk.events.SnackbarEvent
 import kotlinx.coroutines.Job
 
 abstract class BaseViewModel(
@@ -39,10 +40,6 @@ abstract class BaseViewModel(
 
     val isConnected get() = Info.isConnected
     val viewEvents: LiveData<ViewEvent> get() = _viewEvents
-
-    @get:Bindable
-    var insets = Insets.NONE
-        set(value) = set(value, field, { field = it }, BR.insets)
 
     var state= initialState
         set(value) = set(value, field, { field = it }, BR.loading, BR.loaded, BR.loadFailed)
@@ -76,15 +73,11 @@ abstract class BaseViewModel(
         super.onCleared()
     }
 
-    fun withView(action: BaseActivity.() -> Unit) {
-        ViewActionEvent(action).publish()
-    }
-
     fun withPermission(permission: String, callback: (Boolean) -> Unit) {
         PermissionEvent(permission, callback).publish()
     }
 
-    fun withExternalRW(callback: () -> Unit) {
+    inline fun withExternalRW(crossinline callback: () -> Unit) {
         withPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) {
             if (!it) {
                 SnackbarEvent(R.string.external_rw_permission_denied).publish()
@@ -105,8 +98,8 @@ abstract class BaseViewModel(
         _viewEvents.postValue(this)
     }
 
-    fun NavDirections.navigate() {
-        _viewEvents.postValue(NavigationEvent(this))
+    fun NavDirections.navigate(pop: Boolean = false) {
+        _viewEvents.postValue(NavigationEvent(this, pop))
     }
 
 }

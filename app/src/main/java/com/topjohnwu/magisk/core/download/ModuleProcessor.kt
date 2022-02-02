@@ -25,13 +25,8 @@ fun InputStream.toModule(file: Uri, installer: InputStream) {
         zout.putNextEntry(ZipEntry("META-INF/com/google/android/updater-script"))
         zout.write("#MAGISK\n".toByteArray(charset("UTF-8")))
 
-        var off = -1
         zin.forEach { entry ->
-            if (off < 0) {
-                off = entry.name.indexOf('/') + 1
-            }
-
-            val path = entry.name.substring(off)
+            val path = entry.name
             if (path.isNotEmpty() && !path.startsWith("META-INF")) {
                 zout.putNextEntry(ZipEntry(path))
                 if (!entry.isDirectory) {
