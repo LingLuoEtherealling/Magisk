@@ -76,8 +76,11 @@ Translate each and place them in the respective locations (`[module]/src/main/re
 
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
-## Additional narrative
-Only for personal research on the operating principles of the Android system.
-This branch is for personal research only.
+## Tips
+The repository does not merge important change from the upstrea.
+
+The cancellation of the Magisk Hide function is inevitable.The joining of Zygisk is fascinating.
+
+Manipulate a application, it is impossible to not be detected.
 
 
