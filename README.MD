@@ -78,7 +78,10 @@ Translate each and place them in the respective locations (`[module]/src/main/re
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ## Tips
-The repository does not merge important change from the upstream.
+
+Merge important changes from the upstream.
+
+No Magisk Hide !!!
 
 The cancellation of the Magisk Hide function is inevitable.The joining of Zygisk is fascinating.
 
